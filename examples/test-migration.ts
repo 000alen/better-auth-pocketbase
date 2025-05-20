@@ -24,6 +24,7 @@ type SchemaDefinition = Record<string, TableDefinition>;
 
 async function generateMigrationTest() {
   console.log("Starting migration generation test...");
+  const collectionPrefix = "test_"; // Consistent prefix
 
   // --- Stage 1: Initial Schema Definition ---
   const initialSchema: SchemaDefinition = {
@@ -37,21 +38,17 @@ async function generateMigrationTest() {
   };
 
   const adapterStage1 = pocketbaseAdapter({
-    url: "http://127.0.0.1:8090", // Dummy URL, not used for generation
-    // generateMigration: true, // This flag is used internally by the adapter if we were using full betterAuth
-    collectionPrefix: "test_", // Optional: prefix for collection names
+    url: "http://127.0.0.1:8090", 
+    collectionPrefix,
   });
 
   console.log("Generating migration1.js...");
   try {
     const migration1Result: AdapterSchemaCreation = await adapterStage1.createSchema({
       tables: initialSchema,
-      file: "./migration1.js", // Output path for the first migration
+      file: "./migration1.js", 
     });
-    // In a real test environment, we might write this to a file
-    // For this task, we'll just log success and later describe expected content
     console.log(`migration1.js generated successfully at ${migration1Result.path}`);
-    // console.log("Content of migration1.js:\n", migration1Result.code); // For debugging
   } catch (error) {
     console.error("Error generating migration1.js:", error);
   }
@@ -59,7 +56,7 @@ async function generateMigrationTest() {
   // --- Stage 2: Modified Schema Definition (Adding a Field) ---
   const modifiedSchema: SchemaDefinition = {
     test_users: {
-      modelName: "test_users", // Same modelName
+      modelName: "test_users", 
       fields: {
         name: { type: "string", fieldName: "name", required: true },
         email: { type: "string", fieldName: "email", unique: true, required: true },
@@ -68,219 +65,148 @@ async function generateMigrationTest() {
     },
   };
 
-  // Re-instantiate adapter or ensure config is fresh if reusing
   const adapterStage2 = pocketbaseAdapter({
-    url: "http://127.0.0.1:8090", // Dummy URL
-    // generateMigration: true,
-    collectionPrefix: "test_", // Ensure consistent prefix
+    url: "http://127.0.0.1:8090", 
+    collectionPrefix, 
   });
 
   console.log("\nGenerating migration2.js...");
   try {
     const migration2Result: AdapterSchemaCreation = await adapterStage2.createSchema({
       tables: modifiedSchema,
-      file: "./migration2.js", // Output path for the second migration
+      file: "./migration2.js", 
     });
     console.log(`migration2.js generated successfully at ${migration2Result.path}`);
-    // console.log("Content of migration2.js:\n", migration2Result.code); // For debugging
   } catch (error) {
     console.error("Error generating migration2.js:", error);
   }
 
+  // --- Stage 3: New Collection Definition ---
+  const schemaStage3: SchemaDefinition = {
+    test_posts: {
+      modelName: "test_posts",
+      fields: {
+        title: { type: "string", fieldName: "title", required: true },
+        content: { type: "string", fieldName: "content", required: false },
+      },
+    },
+  };
+
+  const adapterStage3 = pocketbaseAdapter({
+    url: "http://127.0.0.1:8090",
+    collectionPrefix,
+  });
+
+  console.log("\nGenerating migration3.js...");
+  try {
+    const migration3Result: AdapterSchemaCreation = await adapterStage3.createSchema({
+      tables: schemaStage3,
+      file: "./migration3.js",
+    });
+    console.log(`migration3.js generated successfully at ${migration3Result.path}`);
+  } catch (error) {
+    console.error("Error generating migration3.js:", error);
+  }
+
+
   console.log("\nMigration generation test finished.");
-  console.log("Please verify the contents of migration1.js and migration2.js.");
-  console.log("\nExpected content for migration1.js:");
+  console.log("Please verify the contents of migration1.js, migration2.js, and migration3.js based on the expectations below.");
+
+  // --- Expectations ---
+
+  console.log("\nExpected content for migration1.js (key parts of 'down' function):");
   console.log(`
-/// <reference path="../pb_data/types.d.ts" />
-
-/**
- * Auto-generated PocketBase migration – do NOT edit by hand.
- */
-
-migrate((app) => {
-  const collections = [
-    {
-      // id: "pbc_...", // Randomly generated
-      name: "test_test_users", // With prefix
-      type: "base",
-      system: false,
-      fields: [
-        // system id field
-        { /* ... id field ... */ },
-        {
-          // id: "text...", // Random
-          name: "name",
-          type: "text",
-          required: true,
-          unique: false,
-          system: false,
-          presentable: true,
-          // ... other text field defaults
-        },
-        {
-          // id: "text...", // Random
-          name: "email",
-          type: "text",
-          required: true,
-          unique: true,
-          system: false,
-          presentable: true,
-          // ... other text field defaults
-        },
-        // created/updated autodate fields
-        { /* ... created field ... */ },
-        { /* ... updated field ... */ },
-      ],
-      // ... other collection defaults (listRule, viewRule, etc.)
-    }
-  ];
-
-  for (const def of collections) {
-    let existingCollection;
-    try {
-      existingCollection = app.findCollectionByNameOrId(def.name);
-    } catch {
-      // Collection does not exist
-    }
-
-    if (existingCollection) {
-      // Field addition logic (not expected for migration1 for a new collection)
-      console.info(\`[PB] Collection \${def.name} exists. Checking fields...\`);
-      // ... field checking logic ...
-    } else {
-      app.save(new Collection(def));
-      console.info(\`[PB] Created collection \${def.name}.\`);
-    }
-  }
-}, (app) => {
-  // Rollback logic for migration1.js
-  const collections = [ /* ... same collections array ... */ ].reverse();
-  for (const def of collections) {
-    try {
-      const col = app.findCollectionByNameOrId(def.name);
-      if (col) {
-        app.deleteCollection(col);
-        console.info(\`[PB] Rolled back (deleted) collection \${def.name}.\`);
-      }
-    } catch (e) {
-      console.warn(\`[PB] Could not find collection \${def.name} during rollback: \`, e);
-    }
-  }
-});
+// ...
+// migrate((app) => { /* up logic */ }, (app) => {
+//   // Rollback newly created collections
+//   console.info("[PB] Rolling back newly created collections...");
+//   // newlyCreatedCollections would be ['test_test_users']
+//   for (const collectionName of newlyCreatedCollections.reverse()) {
+//     try {
+//       const col = app.findCollectionByNameOrId(collectionName);
+//       if (col) {
+//         app.deleteCollection(col);
+//         console.info(\`[PB] Rolled back: deleted collection '\${collectionName}'.\`);
+//       } // ...
+//     } // ...
+//   }
+// });
   `);
 
-  console.log("\nExpected content for migration2.js (key parts):");
+  console.log("\nExpected content for migration2.js (key parts of 'down' function):");
   console.log(`
-/// <reference path="../pb_data/types.d.ts" />
-
-/**
- * Auto-generated PocketBase migration – do NOT edit by hand.
- */
-
-migrate((app) => {
-  const collections = [
-    {
-      // id: "pbc_...", // Randomly generated, but DIFFERENT from migration1's collection ID for test_test_users
-      name: "test_test_users",
-      type: "base",
-      system: false,
-      fields: [
-        // system id field
-        { /* ... id field ... */ },
-        {
-          // id: "text...", // Random
-          name: "name",
-          type: "text",
-          required: true,
-          // ...
-        },
-        {
-          // id: "text...", // Random
-          name: "email",
-          type: "text",
-          required: true,
-          unique: true,
-          // ...
-        },
-        {
-          // id: "numb...", // Random prefix based on type
-          name: "age",
-          type: "number", // Correct type
-          required: false, // Correct requirement
-          unique: false,
-          system: false,
-          presentable: true,
-          // ... other number field defaults
-        },
-        // created/updated autodate fields
-        { /* ... created field ... */ },
-        { /* ... updated field ... */ },
-      ],
-      // ...
-    }
-  ];
-
-  for (const def of collections) {
-    let existingCollection;
-    try {
-      existingCollection = app.findCollectionByNameOrId(def.name);
-    } catch {
-      // Collection does not exist
-    }
-
-    if (existingCollection) {
-      console.info(\`[PB] Collection \${def.name} exists. Checking fields...\`);
-      const existingFields = existingCollection.schema.fields.map(f => f.name);
-
-      for (const fieldDef of def.fields) {
-        if (fieldDef.system || ['id', 'created', 'updated'].includes(fieldDef.name)) {
-          continue;
-        }
-
-        if (!existingFields.includes(fieldDef.name)) { // This is key for 'age'
-          try {
-            const newFieldId = randId(fieldDef.type.substring(0, 4)); // Helper function randId must be defined or in scope
-            const fieldSchema = { ...fieldDef, id: newFieldId };
-            delete fieldSchema.system;
-            delete fieldSchema.primaryKey;
-
-            existingCollection.schema.addField(new SchemaField(fieldSchema)); // Adding the new field
-            app.saveCollection(existingCollection); // Saving the collection
-            console.info(\`[PB] Added field \${fieldDef.name} to collection \${def.name}.\`);
-          } catch (e) {
-            console.error(\`[PB] Error adding field \${fieldDef.name} to \${def.name}: \`, e);
-          }
-        } else {
-          console.info(\`[PB] Field \${fieldDef.name} already exists in \${def.name} – skipping.\`); // For 'name' and 'email'
-        }
-      }
-    } else {
-      // This path should ideally not be taken if migration1 ran, but the script is robust.
-      app.save(new Collection(def));
-      console.info(\`[PB] Created collection \${def.name}.\`);
-    }
-  }
-}, (app) => {
-  // Rollback logic for migration2.js
-  // IMPORTANT: Current rollback only deletes the collection, it doesn't remove individual fields.
-  const collections = [ /* ... same collections array ... */ ].reverse();
-   for (const def of collections) {
-    try {
-      const col = app.findCollectionByNameOrId(def.name);
-      if (col) {
-        app.deleteCollection(col); // This would delete the whole collection
-        console.info(\`[PB] Rolled back (deleted) collection \${def.name}.\`);
-      }
-    } catch (e) {
-      console.warn(\`[PB] Could not find collection \${def.name} during rollback: \`, e);
-    }
-  }
-});
+// ...
+// migrate((app) => { /* up logic where 'age' field is added to 'test_test_users' */ }, (app) => {
+//   // newlyCreatedCollections = []; (assuming test_test_users already existed)
+//   // addedFieldsToExistingCollections = [{ collectionName: 'test_test_users', fieldName: 'age' }];
+//
+//   // Rollback added fields from existing collections
+//   console.info("[PB] Rolling back added fields...");
+//   for (const entry of addedFieldsToExistingCollections.reverse()) { // Will iterate for 'age' field
+//     try {
+//       const col = app.findCollectionByNameOrId(entry.collectionName); // Should be 'test_test_users'
+//       if (col) {
+//         const fieldInstance = col.schema.getFieldByName(entry.fieldName); // Should be 'age'
+//         if (fieldInstance) {
+//           col.schema.removeField(fieldInstance.id); // Removes 'age' field
+//           app.saveCollection(col);
+//           console.info(\`[PB] Rolled back: removed field '\${entry.fieldName}' from \${entry.collectionName}.\`);
+//         } // ...
+//       } // ...
+//     } // ...
+//   }
+//
+//   // Rollback newly created collections
+//   console.info("[PB] Rolling back newly created collections...");
+//   // newlyCreatedCollections loop will run but the array should be empty for this migration's context,
+//   // so test_test_users collection itself is NOT deleted here.
+//   for (const collectionName of newlyCreatedCollections.reverse()) {
+//     // ... this loop does nothing if newlyCreatedCollections is empty ...
+//   }
+// });
   `);
-  console.log("Note: The randId function is part of the generated migration code implicitly.");
-  console.log("Actual field IDs and collection IDs will be random but consistent within their respective files if generated from the same schema object instance.");
-  console.log("However, since 'collections' is regenerated for migration2, the collection ID for 'test_test_users' in migration2.js will be different from migration1.js. This is acceptable as PocketBase identifies collections by name when updating.");
 
+  console.log("\nExpected content for migration3.js (key parts of 'up' and 'down' functions):");
+  console.log(`
+// ...
+// migrate((app) => { 
+//   // collections = [{ name: "test_test_posts", fields: [..., {name: "title"}, {name: "content"} ...] }]
+//   // newlyCreatedCollections = [];
+//   // addedFieldsToExistingCollections = [];
+//
+//   // ... loop through collections ...
+//   // For "test_test_posts":
+//   //   existingCollection will be undefined
+//   //   app.save(new Collection(def)); // Creates 'test_test_posts'
+//   //   newlyCreatedCollections.push("test_test_posts");
+//   //   console.info(\`[PB] Created collection test_test_posts.\`);
+//
+// }, (app) => {
+//   // addedFieldsToExistingCollections = [] for this migration
+//   // newlyCreatedCollections = ["test_test_posts"] for this migration
+//
+//   // Rollback added fields from existing collections
+//   console.info("[PB] Rolling back added fields...");
+//   // addedFieldsToExistingCollections loop will run but the array should be empty.
+//   for (const entry of addedFieldsToExistingCollections.reverse()) {
+//     // ... this loop does nothing ...
+//   }
+//
+//   // Rollback newly created collections
+//   console.info("[PB] Rolling back newly created collections...");
+//   for (const collectionName of newlyCreatedCollections.reverse()) { // Will iterate for 'test_test_posts'
+//     try {
+//       const col = app.findCollectionByNameOrId(collectionName); // 'test_test_posts'
+//       if (col) {
+//         app.deleteCollection(col); // Deletes 'test_test_posts' collection
+//         console.info(\`[PB] Rolled back: deleted collection '\${collectionName}'.\`);
+//       } // ...
+//     } // ...
+//   }
+// });
+  `);
+  console.log("Note: Actual field IDs and collection IDs in the generated files will be random.");
+  console.log("The 'randId' helper function is defined within each migration script.");
 }
 
 generateMigrationTest().catch(console.error);

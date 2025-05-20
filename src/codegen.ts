@@ -296,6 +296,12 @@ export function generatePocketBaseSchema({
 
 migrate((app) => {
   const collections = ${JSON.stringify(collections, null, 2)};
+  let newlyCreatedCollections = [];
+  let addedFieldsToExistingCollections = [];
+
+  // Helper function to generate random ID for fields, if not already present in definition
+  // This is defined within the migration script's scope
+  const randId = (prefix = 'fld_') => \`\${prefix}\${Math.random().toString(36).substring(2, 10)}\`;
 
   for (const def of collections) {
     let existingCollection;
@@ -307,61 +313,93 @@ migrate((app) => {
 
     if (existingCollection) {
       console.info(\`[PB] Collection ${'${'}def.name${'}'} exists. Checking fields...\`);
-      const existingFields = existingCollection.schema.fields.map(f => f.name);
+      const existingFieldNames = existingCollection.schema.fields.map(f => f.name);
 
       for (const fieldDef of def.fields) {
-        // Skip system fields like id, created, updated for existing collections
-        // as they are managed by PocketBase or should have been created initially.
         if (fieldDef.system || ['id', 'created', 'updated'].includes(fieldDef.name)) {
           continue;
         }
 
-        if (!existingFields.includes(fieldDef.name)) {
+        if (!existingFieldNames.includes(fieldDef.name)) {
           try {
-            // Ensure new field has a unique ID
-            const newFieldId = randId(fieldDef.type.substring(0, 4));
-            const fieldSchema = {
-              ...fieldDef,
-              id: newFieldId, // Assign newly generated ID
-            };
-            delete fieldSchema.system; // Ensure system is not set for user fields
-            delete fieldSchema.primaryKey; // Ensure primaryKey is not set
+            // Ensure new field has a unique ID, using the one from PbField if available
+            const fieldId = fieldDef.id || randId(fieldDef.type.substring(0, 3) + '_');
+            const fieldSchemaData = { ...fieldDef, id: fieldId };
 
-            existingCollection.schema.addField(new SchemaField(fieldSchema));
+            // Remove properties not part of SchemaField constructor if they exist
+            delete fieldSchemaData.system;
+            delete fieldSchemaData.primaryKey;
+            delete fieldSchemaData.presentable; // Not a direct SchemaField property
+            delete fieldSchemaData.hidden; // Not a direct SchemaField property
+            delete fieldSchemaData.autogeneratePattern; // Not a direct SchemaField property
+            delete fieldSchemaData.onCreate; // Not a direct SchemaField property
+            delete fieldSchemaData.onUpdate; // Not a direct SchemaField property
+
+
+            const newSchemaField = new SchemaField(fieldSchemaData);
+            existingCollection.schema.addField(newSchemaField);
             app.saveCollection(existingCollection);
+
+            addedFieldsToExistingCollections.push({ collectionName: def.name, fieldName: fieldDef.name });
             console.info(\`[PB] Added field ${'${'}fieldDef.name${'}'} to collection ${'${'}def.name${'}'}.\`);
           } catch (e) {
-            console.error(\`[PB] Error adding field ${'${'}fieldDef.name${'}'} to ${'${'}def.name${'}'}: \`, e);
+            console.error(\`[PB] Error adding field ${'${'}fieldDef.name${'}'} to ${'${'}def.name${'}'}: \`, e.message, e.stack);
           }
         } else {
           console.info(\`[PB] Field ${'${'}fieldDef.name${'}'} already exists in ${'${'}def.name${'}'} – skipping.\`);
         }
       }
     } else {
-      app.save(new Collection(def));
-      console.info(\`[PB] Created collection ${'${'}def.name${'}'}.\`);
+      try {
+        // Ensure all fields have IDs for new collection
+        const collectionDefWithFieldIds = {
+          ...def,
+          fields: def.fields.map(f => ({ ...f, id: f.id || randId(f.type.substring(0,3) + '_') }))
+        };
+        app.save(new Collection(collectionDefWithFieldIds));
+        newlyCreatedCollections.push(def.name);
+        console.info(\`[PB] Created collection ${'${'}def.name${'}'}.\`);
+      } catch (e) {
+        console.error(\`[PB] Error creating collection ${'${'}def.name${'}'}: \`, e.message, e.stack);
+      }
     }
   }
 }, (app) => {
-  // IMPORTANT: This rollback logic currently only deletes collections.
-  // It does NOT roll back field additions to existing collections.
-  // For a full rollback, you would need to store the state of collections
-  // before modification or implement logic to remove added fields.
-  const collections = ${JSON.stringify(collections, null, 2)}.reverse();
-
-  for (const def of collections) {
+  // Rollback added fields from existing collections
+  console.info("[PB] Rolling back added fields...");
+  for (const entry of addedFieldsToExistingCollections.reverse()) {
     try {
-      const col = app.findCollectionByNameOrId(def.name);
+      const col = app.findCollectionByNameOrId(entry.collectionName);
       if (col) {
-        // For now, we only delete collections that were newly created.
-        // If the collection existed before and was only modified,
-        // this rollback will delete it entirely.
-        // A more sophisticated rollback would be needed for field-level changes.
-        app.deleteCollection(col);
-        console.info(\`[PB] Rolled back (deleted) collection ${'${'}def.name${'}'}.\`);
+        const fieldInstance = col.schema.getFieldByName(entry.fieldName);
+        if (fieldInstance) {
+          col.schema.removeField(fieldInstance.id);
+          app.saveCollection(col);
+          console.info(\`[PB] Rolled back: removed field '\${entry.fieldName}' from \${entry.collectionName}.\`);
+        } else {
+          console.warn(\`[PB] Field '\${entry.fieldName}' not found in collection '\${entry.collectionName}' during field rollback.\`);
+        }
+      } else {
+        console.warn(\`[PB] Collection '\${entry.collectionName}' not found during field rollback.\`);
       }
     } catch (e) {
-      console.warn(\`[PB] Could not find collection ${'${'}def.name${'}'} during rollback: \`, e);
+      console.error(\`[PB] Error rolling back field '\${entry.fieldName}' from \${entry.collectionName}: \`, e.message, e.stack);
+    }
+  }
+
+  // Rollback newly created collections
+  console.info("[PB] Rolling back newly created collections...");
+  for (const collectionName of newlyCreatedCollections.reverse()) {
+    try {
+      const col = app.findCollectionByNameOrId(collectionName);
+      if (col) {
+        app.deleteCollection(col);
+        console.info(\`[PB] Rolled back: deleted collection '\${collectionName}'.\`);
+      } else {
+        console.warn(\`[PB] Collection '\${collectionName}' not found during collection rollback.\`);
+      }
+    } catch (e) {
+      console.error(\`[PB] Error rolling back collection '\${collectionName}': \`, e.message, e.stack);
     }
   }
 });`;
