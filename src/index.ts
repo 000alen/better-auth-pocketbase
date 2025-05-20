@@ -400,6 +400,24 @@ export const pocketbaseAdapter = (adapterConfig: PocketBaseAdapterConfig): Retur
         count,
         createSchema,
 
+        async getCollectionSchemaByName(collectionName: string): Promise<any | null> {
+          if (ready) await ready;
+          const fullCollectionName = adapterConfig.collectionPrefix
+            ? `${adapterConfig.collectionPrefix}${collectionName}`
+            : collectionName;
+          try {
+            const collectionData = await pb.collections.getOne(fullCollectionName);
+            return collectionData.schema;
+          } catch (error: any) {
+            if (error.status === 404) {
+              debugLog(`Collection ${fullCollectionName} not found.`);
+              return null;
+            }
+            debugLog(`Error fetching collection ${fullCollectionName}: ${error}`);
+            throw error;
+          }
+        },
+
       } satisfies CustomAdapter;
     },
   });
